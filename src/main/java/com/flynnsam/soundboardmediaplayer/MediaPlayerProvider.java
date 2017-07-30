@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Resources;
 import android.media.MediaPlayer;
-import android.util.Log;
 
 import java.io.IOException;
 
@@ -24,8 +23,6 @@ import java.io.IOException;
 
 public class MediaPlayerProvider {
 
-    private static final String LOGGER_TAG = MediaPlayerProvider.class.getName();
-
     private OnCompletionPlayNextListener onCompletionPlayNextListener;
 
     private MediaPlayer activePlayer;
@@ -44,10 +41,13 @@ public class MediaPlayerProvider {
      */
     public synchronized void play(final Context context, final int soundId, final OnCompletionPlayNextListener playNextListener) {
 
+        onCompletionPlayNextListener = playNextListener;
+
         // Resetting the whole activePlayer can cause performance problems. If currently playing
         // and sound ID hasn't changed, just seek to beginning.
         if (isPlaying() && Integer.valueOf(soundId).equals(currentlyPlayingSoundId)) {
             activePlayer.seekTo(0);
+            prepareNextPlayer(context);
 
         } else {
 
@@ -56,7 +56,6 @@ public class MediaPlayerProvider {
             }
 
             switchTrack(context, soundId, playNextListener);
-
         }
     }
 
@@ -68,11 +67,12 @@ public class MediaPlayerProvider {
      */
     public synchronized void switchTrack( final Context context, final int soundIdToSwitchTo, final OnCompletionPlayNextListener playNextListener) {
 
-        setOnCompletionPlayNextListener(context, playNextListener);
+        onCompletionPlayNextListener = playNextListener;
 
         int positionToSeekTo = 0;
 
         if (isPlaying()) {
+
             positionToSeekTo = activePlayer.getCurrentPosition();
             activePlayer.stop();
             activePlayer.reset();
@@ -105,23 +105,7 @@ public class MediaPlayerProvider {
             nextPlayer = null;
         }
         currentlyPlayingSoundId = null;
-    }
-
-    /**
-     * Set the listener that determines which track to play next once this one is completed.
-     * @param context Android context to prepare the next media player
-     * @param onCompletionPlayNextListener The new listener for this media activePlayer
-     */
-    public synchronized void setOnCompletionPlayNextListener(Context context, OnCompletionPlayNextListener onCompletionPlayNextListener) {
-
-        this.onCompletionPlayNextListener = onCompletionPlayNextListener;
-
-        if (nextPlayer != null) {
-            nextPlayer.release();
-            nextPlayer = null;
-            nextSoundId = null;
-        }
-        prepareNextPlayer(context);
+        nextSoundId = null;
     }
 
     /**
@@ -168,16 +152,23 @@ public class MediaPlayerProvider {
 
     /**
      * Prepare the next player (load it's media and prepare it for playing) so that it can be played
-     * immediately on completion of the current one.
+     * immediately on completion of the current one).
      * @param context The android context to use to set up the next media player
      */
     private void prepareNextPlayer(Context context) {
+
+        if (nextPlayer != null) {
+            nextPlayer.release();
+            nextPlayer = null;
+            nextSoundId = null;
+        }
+
         if (onCompletionPlayNextListener != null && onCompletionPlayNextListener.getNextTrackResId(this) != null) {
             nextSoundId = onCompletionPlayNextListener.getNextTrackResId(this);
             nextPlayer = new MediaPlayer();
             nextPlayer.setOnCompletionListener(new CloseCallback(context));
             prepareMediaPlayer(context, nextPlayer, nextSoundId);
-            //activePlayer.setNextMediaPlayer(nextPlayer);
+            activePlayer.setNextMediaPlayer(nextPlayer);
         }
     }
 
@@ -192,6 +183,7 @@ public class MediaPlayerProvider {
 
         /**
          * Constructor that captures the initiating context, which may be used to play the next track.
+         *
          * @param initializingContext The initiating android context
          */
         private CloseCallback(final Context initializingContext) {
@@ -206,12 +198,6 @@ public class MediaPlayerProvider {
 
             if (nextPlayer != null) {
 
-                Log.d(LOGGER_TAG, "Starting next player.");
-
-                nextPlayer.start();
-
-                Log.d(LOGGER_TAG, "Next player started.");
-
                 // Cycle the next player to being the active one
                 activePlayer.release();
                 activePlayer = nextPlayer;
@@ -225,14 +211,6 @@ public class MediaPlayerProvider {
             } else {
                 stop();
             }
-        }
-    }
-
-    private class BufferingUpdateListener implements MediaPlayer.OnBufferingUpdateListener {
-
-        @Override
-        public void onBufferingUpdate(MediaPlayer mp, int percent) {
-
         }
     }
 }

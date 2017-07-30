@@ -23,7 +23,7 @@ import java.io.IOException;
 
 public class MediaPlayerProvider {
 
-    protected final MediaPlayer.OnCompletionListener closeCallback;
+    protected OnCompletionPlayNextListener onCompletionPlayNextListener;
 
     protected MediaPlayer player;
 
@@ -31,10 +31,9 @@ public class MediaPlayerProvider {
 
     public MediaPlayerProvider() {
 
-        closeCallback = new CloseCallback();
         player = null;
         currentlyPlayingSoundId = null;
-
+        onCompletionPlayNextListener = null;
     }
 
     public synchronized void play(final Context context, final int soundId) {
@@ -71,9 +70,27 @@ public class MediaPlayerProvider {
         }
 
         prepareMediaPlayer(context, soundIdToSwitchTo);
-        player.setOnCompletionListener(closeCallback);
+        player.setOnCompletionListener(new CloseCallback(context));
         player.seekTo(positionToSeekTo);
         player.start();
+    }
+
+    /**
+     * Halt the underlying media player and release it.
+     */
+    public synchronized void stop() {
+
+        player.release();
+        player = null;
+        currentlyPlayingSoundId = null;
+    }
+
+    public synchronized void setOnCompletionPlayNextListener(OnCompletionPlayNextListener onCompletionPlayNextListener) {
+        this.onCompletionPlayNextListener = onCompletionPlayNextListener;
+    }
+
+    public Integer getCurrentlyPlayingSoundId() {
+        return currentlyPlayingSoundId;
     }
 
     private boolean isPlaying() {
@@ -106,11 +123,22 @@ public class MediaPlayerProvider {
 
     protected class CloseCallback implements MediaPlayer.OnCompletionListener {
 
+        private Context initializingContext;
+
+        private CloseCallback(final Context initializingContext) {
+            this.initializingContext = initializingContext;
+        }
+
         @Override
         public synchronized void onCompletion(MediaPlayer mp) {
-            mp.release();
-            player = null;
-            currentlyPlayingSoundId = null;
+
+            if (onCompletionPlayNextListener != null && onCompletionPlayNextListener.getNextTrackResId() != null) {
+                int nextTrack = onCompletionPlayNextListener.getNextTrackResId().intValue();
+                switchTrack(this.initializingContext, nextTrack);
+
+            } else {
+                stop();
+            }
         }
     }
 }

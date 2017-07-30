@@ -4,18 +4,19 @@ import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Resources;
 import android.media.MediaPlayer;
+import android.util.Log;
 
 import java.io.IOException;
 
 /**
- * This is a stripped down version of the android media player that makes a few assumptions:
+ * This is a stripped down version of the android media activePlayer that makes a few assumptions:
  * <ol>
- *     <li>The underlying media player is always either playing or released. There is never
- *     a state where the media player is created, but not playing anything.</li>
- *     <li>The media player can be released as soon as a single sound action or set of sound actions
- *     are complete. There is no pausing, and as soon as a sound is finished or interrupted, the player
+ *     <li>The underlying media activePlayer is always either playing or released. There is never
+ *     a state where the media activePlayer is created, but not playing anything.</li>
+ *     <li>The media activePlayer can be released as soon as a single sound action or set of sound actions
+ *     are complete. There is no pausing, and as soon as a sound is finished or interrupted, the activePlayer
  *     can be released immediately.</li>
- *     <li>The media player is playing sounds based on a packaged resource ID</li>
+ *     <li>The media activePlayer is playing sounds based on a packaged resource ID</li>
  * </ol>
  *
  * Created by Sam on 2017-07-29.
@@ -23,122 +24,215 @@ import java.io.IOException;
 
 public class MediaPlayerProvider {
 
-    protected OnCompletionPlayNextListener onCompletionPlayNextListener;
+    private static final String LOGGER_TAG = MediaPlayerProvider.class.getName();
 
-    protected MediaPlayer player;
+    private OnCompletionPlayNextListener onCompletionPlayNextListener;
 
-    protected Integer currentlyPlayingSoundId;
+    private MediaPlayer activePlayer;
 
-    public MediaPlayerProvider() {
+    private MediaPlayer nextPlayer;
 
-        player = null;
-        currentlyPlayingSoundId = null;
-        onCompletionPlayNextListener = null;
-    }
+    private Integer currentlyPlayingSoundId;
 
-    public synchronized void play(final Context context, final int soundId) {
+    private Integer nextSoundId;
 
-        // Resetting the whole player can cause performance problems. If currently playing
+    /**
+     * Play a sound from the beginning, with a specified track to play next once this one is complete.
+     * @param context The initiating android context
+     * @param soundId The resource ID of the sound to be played
+     * @param playNextListener The on-completion listener to use to determine the next track to play
+     */
+    public synchronized void play(final Context context, final int soundId, final OnCompletionPlayNextListener playNextListener) {
+
+        // Resetting the whole activePlayer can cause performance problems. If currently playing
         // and sound ID hasn't changed, just seek to beginning.
         if (isPlaying() && Integer.valueOf(soundId).equals(currentlyPlayingSoundId)) {
-            player.seekTo(0);
+            activePlayer.seekTo(0);
 
         } else {
-            if (isPlaying()) {
-                player.stop();
-                player.reset();
 
+            if (activePlayer != null) {
+                activePlayer.reset();
             }
 
-            switchTrack(context, soundId);
+            switchTrack(context, soundId, playNextListener);
 
         }
     }
 
-    public synchronized void switchTrack( final Context context, final int soundIdToSwitchTo) {
+    /**
+     * Switch over to a new track at the current timestamp of the track that is currently playing.
+     * If no track is currently playing, the new track is started from the beginning.
+     * @param context The android context that is initiating this action
+     * @param soundIdToSwitchTo The resource ID of the track to switch to
+     */
+    public synchronized void switchTrack( final Context context, final int soundIdToSwitchTo, final OnCompletionPlayNextListener playNextListener) {
+
+        setOnCompletionPlayNextListener(context, playNextListener);
 
         int positionToSeekTo = 0;
 
         if (isPlaying()) {
-            positionToSeekTo = player.getCurrentPosition();
-            player.stop();
-            player.reset();
+            positionToSeekTo = activePlayer.getCurrentPosition();
+            activePlayer.stop();
+            activePlayer.reset();
         }
 
-        if (player == null) {
-            player = new MediaPlayer();
+        if (activePlayer == null) {
+            activePlayer = new MediaPlayer();
         }
 
-        prepareMediaPlayer(context, soundIdToSwitchTo);
-        player.setOnCompletionListener(new CloseCallback(context));
-        player.seekTo(positionToSeekTo);
-        player.start();
+        prepareMediaPlayer(context, activePlayer, soundIdToSwitchTo);
+        activePlayer.setOnCompletionListener(new CloseCallback(context));
+        activePlayer.seekTo(positionToSeekTo);
+        currentlyPlayingSoundId = soundIdToSwitchTo;
+        activePlayer.start();
+
+        prepareNextPlayer(context);
     }
 
     /**
-     * Halt the underlying media player and release it.
+     * Halt the underlying media activePlayer and release it.
      */
     public synchronized void stop() {
 
-        player.release();
-        player = null;
+        if (activePlayer != null) {
+            activePlayer.release();
+            activePlayer = null;
+        }
+        if (nextPlayer != null) {
+            nextPlayer.release();
+            nextPlayer = null;
+        }
         currentlyPlayingSoundId = null;
     }
 
-    public synchronized void setOnCompletionPlayNextListener(OnCompletionPlayNextListener onCompletionPlayNextListener) {
+    /**
+     * Set the listener that determines which track to play next once this one is completed.
+     * @param context Android context to prepare the next media player
+     * @param onCompletionPlayNextListener The new listener for this media activePlayer
+     */
+    public synchronized void setOnCompletionPlayNextListener(Context context, OnCompletionPlayNextListener onCompletionPlayNextListener) {
+
         this.onCompletionPlayNextListener = onCompletionPlayNextListener;
+
+        if (nextPlayer != null) {
+            nextPlayer.release();
+            nextPlayer = null;
+            nextSoundId = null;
+        }
+        prepareNextPlayer(context);
     }
 
+    /**
+     * Get the resource ID of the track that is currently playing.
+     * @return The resource ID of the currently playing track, or {@code null} if there is no track
+     * currently playing
+     */
     public Integer getCurrentlyPlayingSoundId() {
         return currentlyPlayingSoundId;
     }
 
+    /**
+     * Determine if the managed media activePlayer is currently playing a track.
+     * @return {@code true} if the media activePlayer is currently playing a track. {@code false} otherwise.
+     */
     private boolean isPlaying() {
 
-        // Must make sure player is still open before checking isPlaying
-        return player != null && player.isPlaying();
+        // Must make sure activePlayer is still open before checking isPlaying
+        return activePlayer != null && activePlayer.isPlaying();
     }
 
     /**
-     * Load a project resource into the media player and prepare it for playing.
-     * Precondition: this.player has already been properly released
+     * Load a project resource into the media activePlayer and prepare it for playing.
+     * Precondition: this.activePlayer has already been properly released
      * Source: https://stackoverflow.com/questions/1283499/setting-data-source-to-an-raw-id-in-mediaplayer
      * @param context Android context
-     * @param resourceToLoad The android resource to load into the player
+     * @param playerToPrepare The media player instance to prepare
+     * @param resourceToLoad The android resource to load into the activePlayer
      */
-    private void prepareMediaPlayer(final Context context, final int resourceToLoad) {
+    private void prepareMediaPlayer(final Context context, final MediaPlayer playerToPrepare, final int resourceToLoad) {
 
         AssetFileDescriptor afd = context.getResources().openRawResourceFd(resourceToLoad);
         if (afd == null) {
             throw new Resources.NotFoundException();
         }
         try {
-            player.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+            playerToPrepare.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
             afd.close();
-            player.prepare();
+            playerToPrepare.prepare();
         } catch (IOException e) {
-            throw new RuntimeException("Unable to set data source.", e); // TODO throw a more appropriate exception
+            throw new ResourceLoadException("Unable to set data source.", e);
         }
     }
 
-    protected class CloseCallback implements MediaPlayer.OnCompletionListener {
+    /**
+     * Prepare the next player (load it's media and prepare it for playing) so that it can be played
+     * immediately on completion of the current one.
+     * @param context The android context to use to set up the next media player
+     */
+    private void prepareNextPlayer(Context context) {
+        if (onCompletionPlayNextListener != null && onCompletionPlayNextListener.getNextTrackResId(this) != null) {
+            nextSoundId = onCompletionPlayNextListener.getNextTrackResId(this);
+            nextPlayer = new MediaPlayer();
+            nextPlayer.setOnCompletionListener(new CloseCallback(context));
+            prepareMediaPlayer(context, nextPlayer, nextSoundId);
+            //activePlayer.setNextMediaPlayer(nextPlayer);
+        }
+    }
+
+    /**
+     * On-completion listener for {@code MediaPlayerProvider}-managed media players. This listener
+     * checks for a track to play next. If one is present, it plays it immediately. Otherwise,
+     * the media activePlayer is released;
+     */
+    private class CloseCallback implements MediaPlayer.OnCompletionListener {
 
         private Context initializingContext;
 
+        /**
+         * Constructor that captures the initiating context, which may be used to play the next track.
+         * @param initializingContext The initiating android context
+         */
         private CloseCallback(final Context initializingContext) {
             this.initializingContext = initializingContext;
         }
 
+        /**
+         * {@inheritDoc}
+         */
         @Override
         public synchronized void onCompletion(MediaPlayer mp) {
 
-            if (onCompletionPlayNextListener != null && onCompletionPlayNextListener.getNextTrackResId() != null) {
-                int nextTrack = onCompletionPlayNextListener.getNextTrackResId().intValue();
-                switchTrack(this.initializingContext, nextTrack);
+            if (nextPlayer != null) {
+
+                Log.d(LOGGER_TAG, "Starting next player.");
+
+                nextPlayer.start();
+
+                Log.d(LOGGER_TAG, "Next player started.");
+
+                // Cycle the next player to being the active one
+                activePlayer.release();
+                activePlayer = nextPlayer;
+                nextPlayer = null;
+
+                currentlyPlayingSoundId = nextSoundId;
+                nextSoundId = null;
+
+                prepareNextPlayer(initializingContext);
 
             } else {
                 stop();
             }
+        }
+    }
+
+    private class BufferingUpdateListener implements MediaPlayer.OnBufferingUpdateListener {
+
+        @Override
+        public void onBufferingUpdate(MediaPlayer mp, int percent) {
+
         }
     }
 }

@@ -8,7 +8,7 @@ import android.media.MediaPlayer;
 import java.io.IOException;
 
 /**
- * This is a stripped down version of the android media activePlayer that makes a few assumptions:
+ * This is a stripped down version of the android media player that makes a few assumptions:
  * <ol>
  *     <li>The underlying media activePlayer is always either playing or released. There is never
  *     a state where the media activePlayer is created, but not playing anything.</li>
@@ -19,9 +19,11 @@ import java.io.IOException;
  * </ol>
  *
  * Created by Sam on 2017-07-29.
+ * @deprecated This implementation works, but has problems with latency when fast-switching between
+ * tracks. Consider using {@link SoundPoolMediaProvider} instead.
  */
-
-public class MediaPlayerProvider {
+@Deprecated
+class MediaPlayerProvider implements SoundboardMediaProvider{
 
     private OnCompletionPlayNextListener onCompletionPlayNextListener;
 
@@ -39,6 +41,7 @@ public class MediaPlayerProvider {
      * @param soundId The resource ID of the sound to be played
      * @param playNextListener The on-completion listener to use to determine the next track to play
      */
+    @Override
     public synchronized void play(final Context context, final int soundId, final OnCompletionPlayNextListener playNextListener) {
 
         onCompletionPlayNextListener = playNextListener;
@@ -65,6 +68,7 @@ public class MediaPlayerProvider {
      * @param context The android context that is initiating this action
      * @param soundIdToSwitchTo The resource ID of the track to switch to
      */
+    @Override
     public synchronized void switchTrack( final Context context, final int soundIdToSwitchTo, final OnCompletionPlayNextListener playNextListener) {
 
         onCompletionPlayNextListener = playNextListener;
@@ -94,6 +98,7 @@ public class MediaPlayerProvider {
     /**
      * Halt the underlying media activePlayer and release it.
      */
+    @Override
     public synchronized void stop() {
 
         if (activePlayer != null) {
@@ -113,6 +118,7 @@ public class MediaPlayerProvider {
      * @return The resource ID of the currently playing track, or {@code null} if there is no track
      * currently playing
      */
+    @Override
     public Integer getCurrentlyPlayingSoundId() {
         return currentlyPlayingSoundId;
     }

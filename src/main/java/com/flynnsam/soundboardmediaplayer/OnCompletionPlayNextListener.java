@@ -13,9 +13,9 @@ public interface OnCompletionPlayNextListener {
      * Get the resource ID of the track that should be played next, once the current track has
      * completed.
      *
-     * @param mediaPlayerProvider Media player provider that is requesting the next track
+     * @param soundboardMediaProvider Media player provider that is requesting the next track
      * @return the resource ID of the track to play next, or {@code null} if the player should
      * halt once the current track is completed.
      */
-    Integer getNextTrackResId(MediaPlayerProvider mediaPlayerProvider);
+    Integer getNextTrackResId(SoundboardMediaProvider soundboardMediaProvider);
 }

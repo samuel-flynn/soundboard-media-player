@@ -12,6 +12,6 @@ public class SoundboardMediaProviderFactory {
      * @return A soundboard media provider
      */
     public static SoundboardMediaProvider createSoundboardMediaProvider() {
-        return new SoundPoolMediaProvider();
+        return new ThreadedMediaPlayerProvider();
     }
 }

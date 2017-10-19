@@ -19,7 +19,7 @@ import android.util.Log;
  * </p>
  *
  */
-
+@Deprecated
 class SoundPoolMediaProvider implements SoundboardMediaProvider {
 
     private static final String LOGGER_TAG = SoundPoolMediaProvider.class.getName();

@@ -4,6 +4,7 @@ import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.support.annotation.NonNull;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
@@ -13,7 +14,9 @@ import java.nio.ByteBuffer;
 
 public class MediaCodecCallbacks extends MediaCodec.Callback {
 
-    private static final int BUFFER_SIZE = 128;
+    private static final int INPUT_BUFFER_SIZE = 128;
+
+    private static final int OUTPUT_BUFFER_SIZE = 128;
 
     private InputStream inputStream;
 
@@ -31,33 +34,62 @@ public class MediaCodecCallbacks extends MediaCodec.Callback {
 
         ByteBuffer inputBuffer = codec.getInputBuffer(index);
 
-        byte[] bytes = new byte[BUFFER_SIZE];
+        byte[] bytes = new byte[INPUT_BUFFER_SIZE];
 
-        int bytesRead = inputStream.read(bytes, offset, BUFFER_SIZE);
+        int bytesRead = 0;
 
-        if (bytesRead < BUFFER_SIZE) {
+        int bufferFlagToUse = MediaCodec.BUFFER_FLAG_KEY_FRAME;
+
+        try {
+            bytesRead = inputStream.read(bytes, offset, INPUT_BUFFER_SIZE);
+        } catch (IOException e) {
+            // TODO Log error
+            codec.queueInputBuffer(index, 0, INPUT_BUFFER_SIZE, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+            return;
+        }
+
+        if (bytesRead < INPUT_BUFFER_SIZE) {
             byte[] compressedBytes = new byte[bytesRead];
             System.arraycopy(bytes, 0, compressedBytes, 0, bytesRead);
             bytes = compressedBytes;
+            bufferFlagToUse = MediaCodec.BUFFER_FLAG_END_OF_STREAM;
         }
 
         inputBuffer.put(bytes);
 
-        codec.queueInputBuffer(index, 0, BUFFER_SIZE, 0); //https://developer.android.com/reference/android/media/MediaCodec.html
+        codec.queueInputBuffer(index, 0, INPUT_BUFFER_SIZE, 0, bufferFlagToUse); //https://developer.android.com/reference/android/media/MediaCodec.html
     }
 
     @Override
     public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
 
+        ByteBuffer outputBuffer = codec.getOutputBuffer(index);
+        MediaFormat bufferFormat = codec.getOutputFormat();
+
+        byte[] bytes = new byte[OUTPUT_BUFFER_SIZE];
+
+        outputBuffer.get(bytes); // TODO get bytes to the client
+
+        codec.releaseOutputBuffer(index, false);
     }
 
     @Override
     public void onError(@NonNull MediaCodec codec, @NonNull MediaCodec.CodecException e) {
 
+        // TODO log error
+
+        if (e.isRecoverable()) {
+            codec.stop();
+            //codec.configure(); TODO
+            codec.start();
+        } else {
+            codec.reset();
+        }
     }
 
     @Override
     public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
 
+        // Ignore this for now
     }
 }

@@ -1,3 +1,7 @@
 /build
 *.iml
 proguard-rules.pro
+/.idea
+/local.properties
+/src/main/gen
+/.gradle
